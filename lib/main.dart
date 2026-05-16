@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_gemini/flutter_gemini.dart' as gemini;
+import 'package:genui/genui.dart' as genui;
+import 'package:genui/genui.dart' hide TextPart;
 import 'package:intro_to_genui/theme/app_theme.dart';
 import 'package:intro_to_genui/widgets/message_bubble.dart';
 
@@ -55,11 +57,115 @@ class TextItem extends ConversationItem {
   TextItem({required this.text, this.isUser = false});
 }
 
+class SurfaceItem extends ConversationItem {
+  final String surfaceId;
+  SurfaceItem({required this.surfaceId});
+}
+
 class _MyHomePageState extends State<MyHomePage> {
   final List<ConversationItem> _items = [];
   final List<gemini.Content> _chatHistory = [];
   final _textController = TextEditingController();
   final _scrollController = ScrollController();
+
+  late final String _systemPrompt;
+  late final SurfaceController _controller;
+  late final A2uiTransportAdapter _transport;
+  late final Conversation _conversation;
+  late final Catalog catalog;
+
+  Future<void> _sendAndReceive(ChatMessage msg) async {
+    if (msg.role == ChatMessageRole.system) {
+      return;
+    }
+
+    final text = _extractMessageText(msg);
+    if (text.isEmpty) {
+      return;
+    }
+
+    try {
+      _chatHistory.add(
+        gemini.Content(parts: [gemini.Part.text(text)], role: 'user'),
+      );
+      final response = await gemini.Gemini.instance.chat(
+        _chatHistory,
+        systemPrompt: _systemPrompt,
+        modelName: _geminiModel,
+      );
+      final output = response?.output;
+      if (output == null || output.isEmpty) {
+        return;
+      }
+      _chatHistory.add(
+        gemini.Content(parts: [gemini.Part.text(output)], role: 'model'),
+      );
+      _transport.addChunk(output);
+    } catch (error, stackTrace) {
+      debugPrint('Gemini error: $error\n$stackTrace');
+      rethrow;
+    }
+  }
+
+  String _extractMessageText(ChatMessage msg) {
+    final buffer = StringBuffer();
+
+    for (final part in msg.parts) {
+      if (part.isUiInteractionPart) {
+        buffer.write(part.asUiInteractionPart!.interaction);
+      } else if (part is genui.TextPart) {
+        buffer.write(part.text);
+      }
+    }
+
+    if (buffer.isEmpty) {
+      buffer.write(msg.text);
+    }
+
+    return buffer.toString().trim();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+
+    catalog = BasicCatalogItems.asCatalog();
+    _controller = SurfaceController(catalogs: [catalog]);
+    _transport = A2uiTransportAdapter(onSend: _sendAndReceive);
+    _conversation = Conversation(controller: _controller, transport: _transport);
+
+    _conversation.events.listen((event) {
+      setState(() {
+        switch (event) {
+          case ConversationSurfaceAdded added:
+            _items.add(SurfaceItem(surfaceId: added.surfaceId));
+            _scrollToBottom();
+          case ConversationSurfaceRemoved removed:
+            _items.removeWhere(
+              (item) =>
+                  item is SurfaceItem && item.surfaceId == removed.surfaceId,
+            );
+          case ConversationContentReceived content:
+            _items.add(TextItem(text: content.text, isUser: false));
+            _scrollToBottom();
+          case ConversationError error:
+            debugPrint('GenUI Error: ${error.error}');
+          default:
+            break;
+        }
+      });
+    });
+
+    final promptBuilder = PromptBuilder.chat(
+      catalog: catalog,
+      systemPromptFragments: [systemInstruction],
+    );
+    _systemPrompt = promptBuilder.systemPromptJoined();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _conversation.sendRequest(ChatMessage.user('Start our session.'));
+    });
+  }
 
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -77,6 +183,7 @@ class _MyHomePageState extends State<MyHomePage> {
   void dispose() {
     _textController.dispose();
     _scrollController.dispose();
+    _conversation.dispose();
     super.dispose();
   }
 
@@ -85,39 +192,16 @@ class _MyHomePageState extends State<MyHomePage> {
     if (text.isEmpty) {
       return;
     }
+
     _textController.clear();
 
     setState(() {
       _items.add(TextItem(text: text, isUser: true));
     });
+
     _scrollToBottom();
 
-    try {
-      _chatHistory.add(
-        gemini.Content(parts: [gemini.Part.text(text)], role: 'user'),
-      );
-      final response = await gemini.Gemini.instance.chat(
-        _chatHistory,
-        systemPrompt: systemInstruction,
-        modelName: _geminiModel,
-      );
-      final output = response?.output;
-      if (output != null && output.isNotEmpty) {
-        _chatHistory.add(
-          gemini.Content(parts: [gemini.Part.text(output)], role: 'model'),
-        );
-        setState(() {
-          _items.add(TextItem(text: output, isUser: false));
-        });
-        _scrollToBottom();
-      }
-    } catch (error, stackTrace) {
-      debugPrint('Gemini error: $error\n$stackTrace');
-      setState(() {
-        _items.add(TextItem(text: 'Error: $error', isUser: false));
-      });
-      _scrollToBottom();
-    }
+    await _conversation.sendRequest(ChatMessage.user(text));
   }
 
   @override
@@ -139,6 +223,11 @@ class _MyHomePageState extends State<MyHomePage> {
                     TextItem() => MessageBubble(
                         text: item.text,
                         isUser: item.isUser,
+                      ),
+                    SurfaceItem() => Surface(
+                        surfaceContext: _controller.contextFor(
+                          item.surfaceId,
+                        ),
                       ),
                   },
               ],
