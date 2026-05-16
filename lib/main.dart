@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:genui/genui.dart' as genui;
 import 'package:genui/genui.dart' hide TextPart;
 import 'package:intro_to_genui/message_bubble.dart';
+import 'package:intro_to_genui/task_display.dart';
 
 import 'firebase_options.dart';
 
@@ -93,7 +94,7 @@ class _MyHomePageState extends State<MyHomePage> {
     );
     _chatSession = model.startChat();
 
-    catalog = BasicCatalogItems.asCatalog();
+    catalog = BasicCatalogItems.asCatalog().copyWith(newItems: [taskDisplay]);
 
     _controller = SurfaceController(catalogs: [catalog]);
 
