@@ -4,6 +4,7 @@ import 'package:genui/genui.dart' as genui;
 import 'package:genui/genui.dart' hide TextPart;
 import 'package:intro_to_genui/theme/app_theme.dart';
 import 'package:intro_to_genui/widgets/message_bubble.dart';
+import 'package:intro_to_genui/widgets/task_display.dart';
 
 const taskDisplaySurfaceId = 'task_display';
 
@@ -131,7 +132,7 @@ class _MyHomePageState extends State<MyHomePage> {
   void initState() {
     super.initState();
 
-    catalog = BasicCatalogItems.asCatalog();
+    catalog = BasicCatalogItems.asCatalog().copyWith(newItems: [taskDisplay]);
     _controller = SurfaceController(catalogs: [catalog]);
     _transport = A2uiTransportAdapter(onSend: _sendAndReceive);
     _conversation = Conversation(controller: _controller, transport: _transport);
