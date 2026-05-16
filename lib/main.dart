@@ -7,6 +7,8 @@ import 'package:intro_to_genui/message_bubble.dart';
 
 import 'firebase_options.dart';
 
+const taskDisplaySurfaceId = 'task_display';
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
@@ -106,8 +108,10 @@ class _MyHomePageState extends State<MyHomePage> {
       setState(() {
         switch (event) {
           case ConversationSurfaceAdded added:
-            _items.add(SurfaceItem(surfaceId: added.surfaceId));
-            _scrollToBottom();
+            if (added.surfaceId != taskDisplaySurfaceId) {
+              _items.add(SurfaceItem(surfaceId: added.surfaceId));
+              _scrollToBottom();
+            }
           case ConversationSurfaceRemoved removed:
             _items.removeWhere(
               (item) =>
@@ -182,6 +186,19 @@ class _MyHomePageState extends State<MyHomePage> {
         children: [
           Column(
             children: [
+              AnimatedSize(
+                duration: const Duration(milliseconds: 300),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  alignment: Alignment.topLeft,
+                  child: Surface(
+                    surfaceContext: _controller.contextFor(
+                      taskDisplaySurfaceId,
+                    ),
+                  ),
+                ),
+              ),
+              const Divider(),
               Expanded(
                 child: ListView(
                   controller: _scrollController,
@@ -250,7 +267,7 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 }
 
-const systemInstruction = '''
+final systemInstruction = '''
   ## PERSONA
   You are an expert task planner.
 
@@ -282,4 +299,14 @@ const systemInstruction = '''
   *   If I tell you a task is complete, mark it as complete.
   *   Once all tasks are complete, send a message acknowledging that, and then
     end the conversation.
+
+  ## USER INTERFACE
+  *   To display the list of tasks create one and only one instance of the
+    TaskDisplay catalog item. Use "$taskDisplaySurfaceId" as its surface ID.
+  *   Update $taskDisplaySurfaceId as necessary when the list changes.
+  *   $taskDisplaySurfaceId must include a button for each task that I can use
+    to mark it complete. When I use that button to mark a task complete, it
+    should send you a message indicating what I've done.
+  *   Avoid repeating the same information in a single message.
+  *   When responding with text, rather than A2UI messages, be brief.
 ''';
