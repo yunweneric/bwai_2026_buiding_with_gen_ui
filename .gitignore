@@ -70,3 +70,5 @@ firepit-log.txt
 **/key.properties
 **/*.keystore
 **/*.jks
+
+/env.json

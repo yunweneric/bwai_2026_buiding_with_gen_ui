@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:genui/genui.dart';
+import 'package:intro_to_genui/theme/app_theme.dart';
 import 'package:json_schema_builder/json_schema_builder.dart';
 
 final taskDisplaySchema = S.object(
@@ -16,12 +17,10 @@ final taskDisplaySchema = S.object(
             description: 'The action performed when the user has completed the task.',
           ),
         },
-        // New!
         required: ['name', 'isCompleted', 'completeAction'],
       ),
     ),
   },
-  // New!
   required: ['title', 'tasks'],
 );
 
@@ -64,7 +63,7 @@ class _TaskDisplayData {
   factory _TaskDisplayData.fromJson(Map<String, Object?> json) {
     try {
       return _TaskDisplayData(
-        title: (json['title'] as String?) ?? 'Tasks',
+        title: (json['title'] as String?) ?? 'Today',
         tasks: (json['tasks'] as List<Object?>)
             .map((e) => _TaskData.fromJson(e as Map<String, Object?>))
             .toList(),
@@ -73,6 +72,8 @@ class _TaskDisplayData {
       throw Exception('Invalid JSON for _TaskDisplayData: $e');
     }
   }
+
+  int get completedCount => tasks.where((t) => t.isCompleted).length;
 }
 
 class _TaskDisplay extends StatelessWidget {
@@ -83,35 +84,156 @@ class _TaskDisplay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final total = data.tasks.length;
+    final completed = data.completedCount;
+    final progress = total == 0 ? 0.0 : completed / total;
+
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Text(data.title, style: Theme.of(context).textTheme.titleLarge),
-        ),
-        ...data.tasks.map(
-          (task) => CheckboxListTile(
-            title: Text(
-              task.name,
-              style: TextStyle(
-                decoration: task.isCompleted
-                    ? TextDecoration.lineThrough
-                    : TextDecoration.none,
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    data.title,
+                    style: theme.textTheme.titleMedium,
+                  ),
+                  if (total > 0) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      '$completed of $total completed',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  ],
+                ],
               ),
             ),
-            value: task.isCompleted,
-            onChanged: task.isCompleted
-                ? null
-                : (val) {
-                    if (val == true) {
-                      onCompleteTask(task);
-                    }
-                  },
+            if (total > 0)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: completed == total
+                      ? AppColors.successMuted
+                      : AppColors.borderSubtle,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  completed == total ? 'Done' : '${(progress * 100).round()}%',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: completed == total
+                        ? AppColors.success
+                        : AppColors.textSecondary,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        if (total > 0) ...[
+          const SizedBox(height: 16),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 4,
+              backgroundColor: AppColors.borderSubtle,
+              color: completed == total ? AppColors.success : AppColors.primary,
+            ),
+          ),
+        ],
+        if (data.tasks.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 16),
+            child: Text(
+              'Your tasks will appear here once you agree on a plan.',
+              style: theme.textTheme.bodyMedium,
+            ),
+          )
+        else ...[
+          const SizedBox(height: 16),
+          for (var i = 0; i < data.tasks.length; i++) ...[
+            if (i > 0) const Divider(height: 1, color: AppColors.borderSubtle),
+            _TaskRow(
+              task: data.tasks[i],
+              onComplete: () => onCompleteTask(data.tasks[i]),
+            ),
+          ],
+        ],
+      ],
+    );
+  }
+}
+
+class _TaskRow extends StatelessWidget {
+  const _TaskRow({required this.task, required this.onComplete});
+
+  final _TaskData task;
+  final VoidCallback onComplete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: task.isCompleted ? null : onComplete,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Row(
+            children: [
+              _TaskCheckbox(isCompleted: task.isCompleted),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  task.name,
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    color: task.isCompleted
+                        ? AppColors.textMuted
+                        : AppColors.textPrimary,
+                    decoration: task.isCompleted
+                        ? TextDecoration.lineThrough
+                        : null,
+                    decorationColor: AppColors.textMuted,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
-      ],
+      ),
+    );
+  }
+}
+
+class _TaskCheckbox extends StatelessWidget {
+  const _TaskCheckbox({required this.isCompleted});
+
+  final bool isCompleted;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      width: 22,
+      height: 22,
+      decoration: BoxDecoration(
+        color: isCompleted ? AppColors.success : Colors.transparent,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: isCompleted ? AppColors.success : AppColors.border,
+          width: 1.5,
+        ),
+      ),
+      child: isCompleted
+          ? const Icon(Icons.check_rounded, size: 14, color: Colors.white)
+          : null,
     );
   }
 }
@@ -126,18 +248,11 @@ final taskDisplay = CatalogItem(
     return _TaskDisplay(
       data: data,
       onCompleteTask: (task) async {
-        // A data context is a reference to a location in the data model. This line
-        // turns that reference into a concrete data object that the agent can use.
-        // It's kind of like taking a pointer and replacing it with the value it
-        // points to.
         final JsonMap resolvedContext = await resolveContext(
           itemContext.dataContext,
           task.actionContext,
         );
 
-        // Dispatch an event back to the agent, letting it know a task was completed.
-        // This will be sent to the agent in an A2UI message that includes the name
-        // of the action, the surface ID, and the resolved data context.
         itemContext.dispatchEvent(
           UserActionEvent(
             name: task.actionName,

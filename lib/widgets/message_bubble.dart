@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intro_to_genui/theme/app_theme.dart';
 
 class MessageBubble extends StatelessWidget {
   final String text;
@@ -9,64 +10,78 @@ class MessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    final bubbleColor = isUser
-        ? colorScheme.primary
-        : colorScheme.surfaceContainerHighest;
-
-    final textColor = isUser ? colorScheme.onPrimary : colorScheme.onSurfaceVariant;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 8.0),
-      child: Column(
-        crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
-            children: [
-              Flexible(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+          if (!isUser) ...[
+            _Avatar(isUser: false),
+            const SizedBox(width: 10),
+          ],
+          Flexible(
+            child: Column(
+              crossAxisAlignment:
+                  isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isUser ? 'You' : 'Assistant',
+                  style: theme.textTheme.labelSmall,
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   decoration: BoxDecoration(
-                    color: bubbleColor,
-                    borderRadius: BorderRadius.only(
-                      topLeft: const Radius.circular(20),
-                      topRight: const Radius.circular(20),
-                      bottomLeft: Radius.circular(isUser ? 20 : 0),
-                      bottomRight: Radius.circular(isUser ? 0 : 20),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withAlpha(20),
-                        blurRadius: 4,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                    gradient: isUser
-                        ? LinearGradient(
-                            colors: [
-                              colorScheme.primary,
-                              colorScheme.primary.withAlpha(200),
-                            ],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          )
-                        : null,
+                    color: isUser ? AppColors.userBubble : AppColors.assistantBubble,
+                    borderRadius: BorderRadius.circular(12),
+                    border: isUser
+                        ? null
+                        : Border.all(color: AppColors.assistantBubbleBorder),
                   ),
                   child: Text(
                     text,
                     style: theme.textTheme.bodyLarge?.copyWith(
-                      color: textColor,
-                      height: 1.3,
+                      color: isUser ? Colors.white : AppColors.textPrimary,
+                      height: 1.5,
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-          const SizedBox(height: 2),
+          if (isUser) ...[
+            const SizedBox(width: 10),
+            _Avatar(isUser: true),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+class _Avatar extends StatelessWidget {
+  const _Avatar({required this.isUser});
+
+  final bool isUser;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        color: isUser ? AppColors.primary : AppColors.borderSubtle,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: isUser ? AppColors.primary : AppColors.border,
+        ),
+      ),
+      child: Icon(
+        isUser ? Icons.person_outline_rounded : Icons.auto_awesome_rounded,
+        size: 16,
+        color: isUser ? Colors.white : AppColors.textSecondary,
       ),
     );
   }

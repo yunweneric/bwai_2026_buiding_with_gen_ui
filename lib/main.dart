@@ -1,17 +1,34 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_ai/firebase_ai.dart';
-import 'package:intro_to_genui/widgets/message_bubble.dart';
-import 'package:intro_to_genui/widgets/task_display.dart';
-import 'firebase_options.dart';
+import 'package:flutter_gemini/flutter_gemini.dart' as gemini;
 import 'package:genui/genui.dart' hide TextPart;
 import 'package:genui/genui.dart' as genui;
+import 'package:intro_to_genui/theme/app_theme.dart';
+import 'package:intro_to_genui/widgets/chat_composer.dart';
+import 'package:intro_to_genui/widgets/message_bubble.dart';
+import 'package:intro_to_genui/widgets/task_display.dart';
 
 const taskDisplaySurfaceId = 'task_display';
 
+const _geminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
+const _geminiModelRaw = String.fromEnvironment(
+  'GEMINI_MODEL',
+  defaultValue: 'gemini-2.0-flash',
+);
+
+String get _geminiModel =>
+    _geminiModelRaw.startsWith('models/') ? _geminiModelRaw : 'models/$_geminiModelRaw';
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  if (_geminiApiKey.isEmpty) {
+    throw StateError(
+      'GEMINI_API_KEY is not set. Add it to env.json or run with:\n'
+      'flutter run --dart-define-from-file=env.json',
+    );
+  }
+
+  gemini.Gemini.init(apiKey: _geminiApiKey);
   runApp(const MyApp());
 }
 
@@ -22,7 +39,8 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Just Today',
-      theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue)),
+      theme: AppTheme.light(),
+      debugShowCheckedModeBanner: false,
       home: const MyHomePage(),
     );
   }
@@ -45,68 +63,73 @@ class TextItem extends ConversationItem {
 
 class _MyHomePageState extends State<MyHomePage> {
   final List<ConversationItem> _items = [];
+  final List<gemini.Content> _chatHistory = [];
   final _textController = TextEditingController();
   final _scrollController = ScrollController();
 
-  late final ChatSession _chatSession;
+  late final String _systemPrompt;
   late final SurfaceController _controller;
   late final A2uiTransportAdapter _transport;
   late final Conversation _conversation;
   late final Catalog catalog;
 
   Future<void> _sendAndReceive(ChatMessage msg) async {
-    final buffer = StringBuffer();
-
-    debugPrint('msg: $msg');
-
-    // Reconstruct the message part fragments
-    for (final part in msg.parts) {
-      if (part.isUiInteractionPart) {
-        buffer.write(part.asUiInteractionPart!.interaction);
-      } else if (part is genui.TextPart) {
-        buffer.write(part.text);
-      }
-    }
-
-    debugPrint('buffer: $buffer');
-
-    if (buffer.isEmpty) {
+    if (msg.role == ChatMessageRole.system) {
       return;
     }
 
-    final text = buffer.toString();
-    debugPrint('text: $text');
-    // Send the string to Firebase AI Logic.
-    final response = await _chatSession.sendMessage(Content.text(text));
-
-    if (response.text?.isNotEmpty ?? false) {
-      // Feed the response back into GenUI's transportation layer
-      _transport.addChunk(response.text!);
+    final text = _extractMessageText(msg);
+    if (text.isEmpty) {
+      return;
     }
+
+    try {
+      _chatHistory.add(gemini.Content(parts: [gemini.Part.text(text)], role: 'user'));
+
+      final response = await gemini.Gemini.instance.chat(
+        _chatHistory,
+        systemPrompt: _systemPrompt,
+        modelName: _geminiModel,
+      );
+
+      final output = response?.output;
+      if (output == null || output.isEmpty) {
+        return;
+      }
+
+      _chatHistory.add(gemini.Content(parts: [gemini.Part.text(output)], role: 'model'));
+      _transport.addChunk(output);
+    } catch (error, stackTrace) {
+      debugPrint('Gemini error: $error\n$stackTrace');
+      rethrow;
+    }
+  }
+
+  String _extractMessageText(ChatMessage msg) {
+    final buffer = StringBuffer();
+
+    for (final part in msg.parts) {
+      if (part.isUiInteractionPart) {
+        buffer.write(part.asUiInteractionPart!.interaction);
+      }
+    }
+
+    if (buffer.isEmpty) {
+      buffer.write(msg.text);
+    }
+
+    return buffer.toString().trim();
   }
 
   @override
   void initState() {
     super.initState();
-    final model = FirebaseAI.googleAI().generativeModel(model: 'gemini-3-flash-preview');
-    _chatSession = model.startChat();
-    // Initialize the GenUI Catalog.
-    // The genui package provides a default set of primitive widgets (like text
-    // and basic buttons) out of the box using this class.
+
     catalog = BasicCatalogItems.asCatalog().copyWith(newItems: [taskDisplay]);
-
-    // Create a SurfaceController to manage the state of generated surfaces.
     _controller = SurfaceController(catalogs: [catalog]);
-
-    // Create a transport adapter that will process messages to and from the
-    // agent, looking for A2UI messages.
     _transport = A2uiTransportAdapter(onSend: _sendAndReceive);
-
-    // Link the transport and SurfaceController together in a Conversation,
-    // which provides your app a unified API for interacting with the agent.
     _conversation = Conversation(controller: _controller, transport: _transport);
 
-    // Listen to GenUI stream events to update the UI
     _conversation.events.listen((event) {
       setState(() {
         switch (event) {
@@ -129,16 +152,15 @@ class _MyHomePageState extends State<MyHomePage> {
       });
     });
 
-    // Create the system prompt for the agent, which will include this app's
-    // system instruction as well as the schema for the catalog.
     final promptBuilder = PromptBuilder.chat(
       catalog: catalog,
       systemPromptFragments: [systemInstruction],
     );
+    _systemPrompt = promptBuilder.systemPromptJoined();
 
-    // Send the prompt into the Conversation, which will subsequently route it
-    // to Firebase using the transport mechanism.
-    _conversation.sendRequest(ChatMessage.system(promptBuilder.systemPromptJoined()));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _conversation.sendRequest(ChatMessage.user('Start our session.'));
+    });
   }
 
   void _scrollToBottom() {
@@ -157,6 +179,7 @@ class _MyHomePageState extends State<MyHomePage> {
   void dispose() {
     _textController.dispose();
     _scrollController.dispose();
+    _conversation.dispose();
     super.dispose();
   }
 
@@ -175,7 +198,6 @@ class _MyHomePageState extends State<MyHomePage> {
 
     _scrollToBottom();
 
-    // Send the user's input through GenUI instead of directly to Firebase.
     await _conversation.sendRequest(ChatMessage.user(text));
   }
 
@@ -183,84 +205,140 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: const Text('Just Today'),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Just Today', style: Theme.of(context).appBarTheme.titleTextStyle),
+            Text(
+              'Daily task planner',
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w400, fontSize: 13),
+            ),
+          ],
+        ),
+        toolbarHeight: 64,
       ),
-      body: Stack(
-        children: [
-          Column(
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              AnimatedSize(
-                duration: const Duration(milliseconds: 300),
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  alignment: Alignment.topLeft,
-                  child: Surface(
-                    surfaceContext: _controller.contextFor(taskDisplaySurfaceId),
-                  ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                child: _TaskPanel(controller: _controller),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+                child: Text(
+                  'CONVERSATION',
+                  style: Theme.of(context).textTheme.labelSmall,
                 ),
               ),
-              const Divider(),
               Expanded(
-                child: ListView(
-                  controller: _scrollController,
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    for (final item in _items)
-                      switch (item) {
-                        TextItem() => MessageBubble(text: item.text, isUser: item.isUser),
-                        // New!
-                        SurfaceItem() => Surface(
-                          surfaceContext: _controller.contextFor(item.surfaceId),
-                        ),
-                      },
-                  ],
-                ),
-              ),
-              SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                  child: ValueListenableBuilder<ConversationState>(
-                    valueListenable: _conversation.state,
-                    builder: (context, state, child) {
-                      return Row(
+                child: _items.isEmpty
+                    ? const _EmptyConversation()
+                    : ListView(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
                         children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _textController,
-                              // Also disable the Enter key submission when waiting!
-                              onSubmitted: state.isWaiting ? null : (_) => _addMessage(),
-                              decoration: const InputDecoration(
-                                hintText: 'Enter a message',
+                          for (final item in _items)
+                            switch (item) {
+                              TextItem() => MessageBubble(
+                                text: item.text,
+                                isUser: item.isUser,
                               ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          ElevatedButton(
-                            // Disable the send button when the model is generating
-                            onPressed: state.isWaiting ? null : _addMessage,
-                            child: const Text('Send'),
-                          ),
+                              SurfaceItem() => Padding(
+                                padding: const EdgeInsets.only(bottom: 16),
+                                child: Surface(
+                                  surfaceContext: _controller.contextFor(item.surfaceId),
+                                ),
+                              ),
+                            },
                         ],
-                      );
-                    },
-                  ),
-                ),
+                      ),
+              ),
+              ValueListenableBuilder<ConversationState>(
+                valueListenable: _conversation.state,
+                builder: (context, state, _) {
+                  return ChatComposer(
+                    controller: _textController,
+                    isWaiting: state.isWaiting,
+                    onSend: _addMessage,
+                  );
+                },
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
 
-          // Listen to the state again, this time to render a progress indicator
-          ValueListenableBuilder<ConversationState>(
-            valueListenable: _conversation.state,
-            builder: (context, state, child) {
-              if (state.isWaiting) {
-                return const LinearProgressIndicator();
-              }
-              return const SizedBox.shrink();
-            },
-          ),
-        ],
+class _TaskPanel extends StatelessWidget {
+  const _TaskPanel({required this.controller});
+
+  final SurfaceController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("TODAY'S PLAN", style: Theme.of(context).textTheme.labelSmall),
+            const SizedBox(height: 16),
+            Surface(surfaceContext: controller.contextFor(taskDisplaySurfaceId)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyConversation extends StatelessWidget {
+  const _EmptyConversation();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: AppColors.borderSubtle,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: const Icon(
+                Icons.chat_bubble_outline_rounded,
+                size: 26,
+                color: AppColors.textMuted,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Start planning your day',
+              style: Theme.of(context).textTheme.titleSmall,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Describe what you need to accomplish today and your planner will help organize it.',
+              style: Theme.of(context).textTheme.bodyMedium,
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       ),
     );
   }
