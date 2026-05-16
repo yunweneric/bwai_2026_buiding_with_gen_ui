@@ -1,395 +1,119 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_gemini/flutter_gemini.dart' as gemini;
-import 'package:genui/genui.dart' hide TextPart;
-import 'package:genui/genui.dart' as genui;
-import 'package:intro_to_genui/theme/app_theme.dart';
-import 'package:intro_to_genui/widgets/chat_composer.dart';
-import 'package:intro_to_genui/widgets/message_bubble.dart';
-import 'package:intro_to_genui/widgets/task_display.dart';
 
-const taskDisplaySurfaceId = 'task_display';
-
-const _geminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
-const _geminiModelRaw = String.fromEnvironment(
-  'GEMINI_MODEL',
-  defaultValue: 'gemini-2.0-flash',
-);
-
-String get _geminiModel =>
-    _geminiModelRaw.startsWith('models/') ? _geminiModelRaw : 'models/$_geminiModelRaw';
-
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  if (_geminiApiKey.isEmpty) {
-    throw StateError(
-      'GEMINI_API_KEY is not set. Add it to env.json or run with:\n'
-      'flutter run --dart-define-from-file=env.json',
-    );
-  }
-
-  gemini.Gemini.init(apiKey: _geminiApiKey);
+void main() {
   runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
+  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Just Today',
-      theme: AppTheme.light(),
-      debugShowCheckedModeBanner: false,
-      home: const MyHomePage(),
+      title: 'Flutter Demo',
+      theme: ThemeData(
+        // This is the theme of your application.
+        //
+        // TRY THIS: Try running your application with "flutter run". You'll see
+        // the application has a purple toolbar. Then, without quitting the app,
+        // try changing the seedColor in the colorScheme below to Colors.green
+        // and then invoke "hot reload" (save your changes or press the "hot
+        // reload" button in a Flutter-supported IDE, or press "r" if you used
+        // the command line to start the app).
+        //
+        // Notice that the counter didn't reset back to zero; the application
+        // state is not lost during the reload. To reset the state, use hot
+        // restart instead.
+        //
+        // This works for code too, not just values: Most code changes can be
+        // tested with just a hot reload.
+        colorScheme: .fromSeed(seedColor: Colors.deepPurple),
+      ),
+      home: const MyHomePage(title: 'Flutter Demo Home Page'),
     );
   }
 }
 
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key});
+  const MyHomePage({super.key, required this.title});
+
+  // This widget is the home page of your application. It is stateful, meaning
+  // that it has a State object (defined below) that contains fields that affect
+  // how it looks.
+
+  // This class is the configuration for the state. It holds the values (in this
+  // case the title) provided by the parent (in this case the App widget) and
+  // used by the build method of the State. Fields in a Widget subclass are
+  // always marked "final".
+
+  final String title;
 
   @override
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
-sealed class ConversationItem {}
-
-class TextItem extends ConversationItem {
-  final String text;
-  final bool isUser;
-  TextItem({required this.text, this.isUser = false});
-}
-
 class _MyHomePageState extends State<MyHomePage> {
-  final List<ConversationItem> _items = [];
-  final List<gemini.Content> _chatHistory = [];
-  final _textController = TextEditingController();
-  final _scrollController = ScrollController();
+  int _counter = 0;
 
-  late final String _systemPrompt;
-  late final SurfaceController _controller;
-  late final A2uiTransportAdapter _transport;
-  late final Conversation _conversation;
-  late final Catalog catalog;
-
-  Future<void> _sendAndReceive(ChatMessage msg) async {
-    if (msg.role == ChatMessageRole.system) {
-      return;
-    }
-
-    final text = _extractMessageText(msg);
-    if (text.isEmpty) {
-      return;
-    }
-
-    try {
-      _chatHistory.add(gemini.Content(parts: [gemini.Part.text(text)], role: 'user'));
-
-      final response = await gemini.Gemini.instance.chat(
-        _chatHistory,
-        systemPrompt: _systemPrompt,
-        modelName: _geminiModel,
-      );
-
-      final output = response?.output;
-      if (output == null || output.isEmpty) {
-        return;
-      }
-
-      _chatHistory.add(gemini.Content(parts: [gemini.Part.text(output)], role: 'model'));
-      _transport.addChunk(output);
-    } catch (error, stackTrace) {
-      debugPrint('Gemini error: $error\n$stackTrace');
-      rethrow;
-    }
-  }
-
-  String _extractMessageText(ChatMessage msg) {
-    final buffer = StringBuffer();
-
-    for (final part in msg.parts) {
-      if (part.isUiInteractionPart) {
-        buffer.write(part.asUiInteractionPart!.interaction);
-      }
-    }
-
-    if (buffer.isEmpty) {
-      buffer.write(msg.text);
-    }
-
-    return buffer.toString().trim();
-  }
-
-  @override
-  void initState() {
-    super.initState();
-
-    catalog = BasicCatalogItems.asCatalog().copyWith(newItems: [taskDisplay]);
-    _controller = SurfaceController(catalogs: [catalog]);
-    _transport = A2uiTransportAdapter(onSend: _sendAndReceive);
-    _conversation = Conversation(controller: _controller, transport: _transport);
-
-    _conversation.events.listen((event) {
-      setState(() {
-        switch (event) {
-          case ConversationSurfaceAdded added:
-            if (added.surfaceId != taskDisplaySurfaceId) {
-              _items.add(SurfaceItem(surfaceId: added.surfaceId));
-              _scrollToBottom();
-            }
-          case ConversationSurfaceRemoved removed:
-            _items.removeWhere(
-              (item) => item is SurfaceItem && item.surfaceId == removed.surfaceId,
-            );
-          case ConversationContentReceived content:
-            _items.add(TextItem(text: content.text, isUser: false));
-            _scrollToBottom();
-          case ConversationError error:
-            debugPrint('GenUI Error: ${error.error}');
-          default:
-        }
-      });
-    });
-
-    final promptBuilder = PromptBuilder.chat(
-      catalog: catalog,
-      systemPromptFragments: [systemInstruction],
-    );
-    _systemPrompt = promptBuilder.systemPromptJoined();
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _conversation.sendRequest(ChatMessage.user('Start our session.'));
-    });
-  }
-
-  void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _textController.dispose();
-    _scrollController.dispose();
-    _conversation.dispose();
-    super.dispose();
-  }
-
-  Future<void> _addMessage() async {
-    final text = _textController.text;
-
-    if (text.trim().isEmpty) {
-      return;
-    }
-
-    _textController.clear();
-
+  void _incrementCounter() {
     setState(() {
-      _items.add(TextItem(text: text, isUser: true));
+      // This call to setState tells the Flutter framework that something has
+      // changed in this State, which causes it to rerun the build method below
+      // so that the display can reflect the updated values. If we changed
+      // _counter without calling setState(), then the build method would not be
+      // called again, and so nothing would appear to happen.
+      _counter++;
     });
-
-    _scrollToBottom();
-
-    await _conversation.sendRequest(ChatMessage.user(text));
   }
 
   @override
   Widget build(BuildContext context) {
+    // This method is rerun every time setState is called, for instance as done
+    // by the _incrementCounter method above.
+    //
+    // The Flutter framework has been optimized to make rerunning build methods
+    // fast, so that you can just rebuild anything that needs updating rather
+    // than having to individually change instances of widgets.
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Just Today', style: Theme.of(context).appBarTheme.titleTextStyle),
-            Text(
-              'Daily task planner',
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w400, fontSize: 13),
-            ),
-          ],
-        ),
-        toolbarHeight: 64,
+        // TRY THIS: Try changing the color here to a specific color (to
+        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
+        // change color while the other colors stay the same.
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        // Here we take the value from the MyHomePage object that was created by
+        // the App.build method, and use it to set our appbar title.
+        title: Text(widget.title),
       ),
       body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 720),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                child: _TaskPanel(controller: _controller),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-                child: Text(
-                  'CONVERSATION',
-                  style: Theme.of(context).textTheme.labelSmall,
-                ),
-              ),
-              Expanded(
-                child: _items.isEmpty
-                    ? const _EmptyConversation()
-                    : ListView(
-                        controller: _scrollController,
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        children: [
-                          for (final item in _items)
-                            switch (item) {
-                              TextItem() => MessageBubble(
-                                text: item.text,
-                                isUser: item.isUser,
-                              ),
-                              SurfaceItem() => Padding(
-                                padding: const EdgeInsets.only(bottom: 16),
-                                child: Surface(
-                                  surfaceContext: _controller.contextFor(item.surfaceId),
-                                ),
-                              ),
-                            },
-                        ],
-                      ),
-              ),
-              ValueListenableBuilder<ConversationState>(
-                valueListenable: _conversation.state,
-                builder: (context, state, _) {
-                  return ChatComposer(
-                    controller: _textController,
-                    isWaiting: state.isWaiting,
-                    onSend: _addMessage,
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _TaskPanel extends StatelessWidget {
-  const _TaskPanel({required this.controller});
-
-  final SurfaceController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
+        // Center is a layout widget. It takes a single child and positions it
+        // in the middle of the parent.
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          // Column is also a layout widget. It takes a list of children and
+          // arranges them vertically. By default, it sizes itself to fit its
+          // children horizontally, and tries to be as tall as its parent.
+          //
+          // Column has various properties to control how it sizes itself and
+          // how it positions its children. Here we use mainAxisAlignment to
+          // center the children vertically; the main axis here is the vertical
+          // axis because Columns are vertical (the cross axis would be
+          // horizontal).
+          //
+          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
+          // action in the IDE, or press "p" in the console), to see the
+          // wireframe for each widget.
+          mainAxisAlignment: .center,
           children: [
-            Text("TODAY'S PLAN", style: Theme.of(context).textTheme.labelSmall),
-            const SizedBox(height: 16),
-            Surface(surfaceContext: controller.contextFor(taskDisplaySurfaceId)),
+            const Text('You have pushed the button this many times:'),
+            Text('$_counter', style: Theme.of(context).textTheme.headlineMedium),
           ],
         ),
       ),
-    );
-  }
-}
-
-class _EmptyConversation extends StatelessWidget {
-  const _EmptyConversation();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(40),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: AppColors.borderSubtle,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: const Icon(
-                Icons.chat_bubble_outline_rounded,
-                size: 26,
-                color: AppColors.textMuted,
-              ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'Start planning your day',
-              style: Theme.of(context).textTheme.titleSmall,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Describe what you need to accomplish today and your planner will help organize it.',
-              style: Theme.of(context).textTheme.bodyMedium,
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _incrementCounter,
+        tooltip: 'Increment',
+        child: const Icon(Icons.add),
       ),
     );
   }
-}
-
-const systemInstruction =
-    '''
-  ## PERSONA
-  You are an expert task planner.
-
-  ## GOAL
-  Work with me to produce a list of tasks that I should do today, and then track
-  the completion status of each one.
-
-  ## RULES
-  Talk with me only about tasks that I should do today.
-  Do not engage in conversation about any other topic.
-  Do not offer suggestions unless I ask for them.
-  Do not offer encouragement unless I ask for it.
-  Do not offer advice unless I ask for it.
-  Do not offer opinions unless I ask for them.
-
-  ## PROCESS
-  ### Planning
-  *   Ask me for information about tasks that I should do today.
-  *   Synthesize a list of tasks from that information.
-  *   Ask clarifying questions if you need to.
-  *   When you have a list of tasks that you think I should do today, present it
-    to me for review.
-  *   Respond to my suggestions for changes, if I have any, until I accept the
-    list.
-
-  ### Tracking
-  *   Once the list is accepted, ask me to let you know when individual tasks are
-    complete.
-  *   If I tell you a task is complete, mark it as complete.
-  *   Once all tasks are complete, send a message acknowledging that, and then
-    end the conversation.
-
-      ## USER INTERFACE
-  *   To display the list of tasks create one and only one instance of the
-    TaskDisplay catalog item. Use "$taskDisplaySurfaceId" as its surface ID.
-  *   Update $taskDisplaySurfaceId as necessary when the list changes.
-  *   $taskDisplaySurfaceId must include a button for each task that I can use
-    to mark it complete. When I use that button to mark a task complete, it
-    should send you a message indicating what I've done.
-  *   Avoid repeating the same information in a single message.
-  *   When responding with text, rather than A2UI messages, be brief.
-''';
-
-class SurfaceItem extends ConversationItem {
-  final String surfaceId;
-  SurfaceItem({required this.surfaceId});
 }
