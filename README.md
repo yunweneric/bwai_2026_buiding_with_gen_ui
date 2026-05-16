@@ -1,67 +1,54 @@
-# Just Today
+# Temperament Quest
 
-A Flutter demo that combines [GenUI](https://pub.dev/packages/genui) with the [Google Gemini API](https://ai.google.dev/) via [`flutter_gemini`](https://pub.dev/packages/flutter_gemini). Chat with an AI task planner that can render interactive UI surfaces (for example, a task list you can mark complete) using the A2UI protocol.
+A Flutter app that runs a **playful, game-style classical temperament quiz** (Sanguine, Choleric, Melancholic, Phlegmatic). Twenty questions use varied inputs (cards, radio, sliders, toggles, dropdowns, and more). Results show your **dominant temperament** plus a **percentage blend** across all four — for reflection only, not a clinical assessment.
 
 ## Features
 
-- Multi-turn chat powered by Gemini
-- GenUI surfaces for structured, agent-generated UI
-- Custom `TaskDisplay` catalog widget for daily task planning and tracking
+- **PageView flow** — one question per page, horizontal swipe, back button for previous questions
+- **Named routes** — home and quiz without circular imports
+- **Weighted scoring** — answers add temperament points; totals become percentages (largest-remainder to 100%)
+- **Result screen** — hero card, strengths/challenges, blend bars, careers / study / relationship tips
 
 ## Prerequisites
 
-- [Flutter](https://docs.flutter.dev/get-started/install) (this project uses [FVM](https://fvm.app/); see `.fvmrc` for the SDK version)
-- A [Gemini API key](https://aistudio.google.com/apikey) from Google AI Studio
+- [Flutter](https://docs.flutter.dev/get-started/install)
 
 ## Setup
 
-1. Clone the repository and install dependencies:
-
-   ```bash
-   flutter pub get
-   ```
-
-2. Copy the example env file and add your API key:
-
-   ```bash
-   cp env.json.example env.json
-   ```
-
-   Edit `env.json` with your [Gemini API key](https://aistudio.google.com/apikey). This file is gitignored — do not commit it.
+```bash
+flutter pub get
+```
 
 ## Run
 
-**Web (Chrome):**
-
 ```bash
-flutter run -d chrome --dart-define-from-file=env.json
+flutter run
 ```
 
-**Other devices:**
+**Web:**
 
 ```bash
-flutter run --dart-define-from-file=env.json
+flutter run -d chrome
 ```
-
-### VS Code / Cursor
-
-Use the **Just Today (Chrome)** launch config in `.vscode/launch.json`. It loads `GEMINI_API_KEY` and `GEMINI_MODEL` from `env.json` automatically.
 
 ## Project structure
 
 | Path | Description |
 |------|-------------|
-| `lib/main.dart` | App entry, Gemini chat loop, GenUI conversation wiring |
-| `lib/widgets/task_display.dart` | Custom GenUI catalog item for the task list surface |
-| `lib/widgets/message_bubble.dart` | Chat message UI |
-| `lib/widgets/surface_item.dart` | Renders dynamic GenUI surfaces in the chat list |
+| `lib/main.dart` | `MaterialApp`, theme, routes |
+| `lib/ui/home_screen.dart` | Intro + start quest |
+| `lib/ui/quiz_flow_screen.dart` | `PageView`, progress, answers map |
+| `lib/ui/question_inputs.dart` | Per-question input widgets |
+| `lib/ui/result_screen.dart` | Dominant + blend + tips |
+| `lib/ui/game_theme.dart` | Colors, gradients, Fredoka + Nunito |
+| `lib/quiz/quiz_bank.dart` | All 20 questions and options |
+| `lib/quiz/temperament_scoring.dart` | Score aggregation and breakdown |
 
-## Security
+## Disclaimer
 
-Do not commit API keys or generated Firebase config files. `.gitignore` excludes `env.json` and other secret paths (for example `.env`, `lib/firebase_options.dart`, `google-services.json`). Commit `env.json.example` only as a template.
+For fun and self-reflection only — not medical or psychological advice.
 
 ## Learn more
 
-- [GenUI package](https://pub.dev/packages/genui)
-- [flutter_gemini](https://pub.dev/packages/flutter_gemini)
 - [Flutter documentation](https://docs.flutter.dev/)
+- [google_fonts](https://pub.dev/packages/google_fonts)
