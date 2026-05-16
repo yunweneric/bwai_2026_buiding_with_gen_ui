@@ -1,6 +1,8 @@
 import 'package:firebase_ai/firebase_ai.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:genui/genui.dart' as genui;
+import 'package:genui/genui.dart' hide TextPart;
 import 'package:intro_to_genui/message_bubble.dart';
 
 import 'firebase_options.dart';
@@ -41,11 +43,45 @@ class TextItem extends ConversationItem {
   TextItem({required this.text, this.isUser = false});
 }
 
+class SurfaceItem extends ConversationItem {
+  final String surfaceId;
+  SurfaceItem({required this.surfaceId});
+}
+
 class _MyHomePageState extends State<MyHomePage> {
   final List<ConversationItem> _items = [];
   final _textController = TextEditingController();
   final _scrollController = ScrollController();
   late final ChatSession _chatSession;
+
+  late final SurfaceController _controller;
+  late final A2uiTransportAdapter _transport;
+  late final Conversation _conversation;
+  late final Catalog catalog;
+
+  Future<void> _sendAndReceive(ChatMessage msg) async {
+    final buffer = StringBuffer();
+
+    for (final part in msg.parts) {
+      if (part.isUiInteractionPart) {
+        buffer.write(part.asUiInteractionPart!.interaction);
+      } else if (part is genui.TextPart) {
+        buffer.write(part.text);
+      }
+    }
+
+    if (buffer.isEmpty) {
+      return;
+    }
+
+    final text = buffer.toString();
+
+    final response = await _chatSession.sendMessage(Content.text(text));
+
+    if (response.text?.isNotEmpty ?? false) {
+      _transport.addChunk(response.text!);
+    }
+  }
 
   @override
   void initState() {
@@ -54,7 +90,48 @@ class _MyHomePageState extends State<MyHomePage> {
       model: 'gemini-3-flash-preview',
     );
     _chatSession = model.startChat();
-    _chatSession.sendMessage(Content.text(systemInstruction));
+
+    catalog = BasicCatalogItems.asCatalog();
+
+    _controller = SurfaceController(catalogs: [catalog]);
+
+    _transport = A2uiTransportAdapter(onSend: _sendAndReceive);
+
+    _conversation = Conversation(
+      controller: _controller,
+      transport: _transport,
+    );
+
+    _conversation.events.listen((event) {
+      setState(() {
+        switch (event) {
+          case ConversationSurfaceAdded added:
+            _items.add(SurfaceItem(surfaceId: added.surfaceId));
+            _scrollToBottom();
+          case ConversationSurfaceRemoved removed:
+            _items.removeWhere(
+              (item) =>
+                  item is SurfaceItem && item.surfaceId == removed.surfaceId,
+            );
+          case ConversationContentReceived content:
+            _items.add(TextItem(text: content.text, isUser: false));
+            _scrollToBottom();
+          case ConversationError error:
+            debugPrint('GenUI Error: ${error.error}');
+          default:
+            break;
+        }
+      });
+    });
+
+    final promptBuilder = PromptBuilder.chat(
+      catalog: catalog,
+      systemPromptFragments: [systemInstruction],
+    );
+
+    _conversation.sendRequest(
+      ChatMessage.system(promptBuilder.systemPromptJoined()),
+    );
   }
 
   void _scrollToBottom() {
@@ -82,6 +159,7 @@ class _MyHomePageState extends State<MyHomePage> {
     if (text.trim().isEmpty) {
       return;
     }
+
     _textController.clear();
 
     setState(() {
@@ -90,14 +168,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
     _scrollToBottom();
 
-    final response = await _chatSession.sendMessage(Content.text(text));
-
-    if (response.text?.isNotEmpty ?? false) {
-      setState(() {
-        _items.add(TextItem(text: response.text!, isUser: false));
-      });
-      _scrollToBottom();
-    }
+    await _conversation.sendRequest(ChatMessage.user(text));
   }
 
   @override
@@ -119,6 +190,11 @@ class _MyHomePageState extends State<MyHomePage> {
                     TextItem() => MessageBubble(
                         text: item.text,
                         isUser: item.isUser,
+                      ),
+                    SurfaceItem() => Surface(
+                        surfaceContext: _controller.contextFor(
+                          item.surfaceId,
+                        ),
                       ),
                   },
               ],
