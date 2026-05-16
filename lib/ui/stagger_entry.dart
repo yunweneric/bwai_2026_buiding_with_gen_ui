@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 /// Fades + slides up its child on first build, optionally with a delay.
@@ -33,17 +35,25 @@ class _StaggerEntryState extends State<StaggerEntry>
     parent: _controller,
     curve: widget.curve,
   );
+  Timer? _delayTimer;
 
   @override
   void initState() {
     super.initState();
-    Future<void>.delayed(widget.delay, () {
-      if (mounted) _controller.forward();
-    });
+    if (widget.delay == Duration.zero) {
+      _controller.forward();
+    } else {
+      _delayTimer = Timer(widget.delay, () {
+        if (mounted) {
+          _controller.forward();
+        }
+      });
+    }
   }
 
   @override
   void dispose() {
+    _delayTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }

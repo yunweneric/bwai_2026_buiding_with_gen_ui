@@ -81,6 +81,30 @@ class TemperamentBreakdown {
   };
 }
 
+/// Parses `SCORES: sanguine=40,choleric=30,melancholic=20,phlegmatic=10` from model text.
+TemperamentBreakdown? tryParseScoreLine(String text) {
+  final re = RegExp(
+    r'SCORES:\s*sanguine\s*=\s*(\d+)\s*,\s*choleric\s*=\s*(\d+)\s*,\s*melancholic\s*=\s*(\d+)\s*,\s*phlegmatic\s*=\s*(\d+)',
+    caseSensitive: false,
+  );
+  final m = re.firstMatch(text);
+  if (m == null) return null;
+  final s = int.parse(m.group(1)!);
+  final c = int.parse(m.group(2)!);
+  final mel = int.parse(m.group(3)!);
+  final ph = int.parse(m.group(4)!);
+  return _breakdownFromFourPercents(s, c, mel, ph);
+}
+
+TemperamentBreakdown _breakdownFromFourPercents(int s, int c, int mel, int ph) {
+  final raw = TemperamentScores()
+    ..sanguine = s
+    ..choleric = c
+    ..melancholic = mel
+    ..phlegmatic = ph;
+  return raw.toBreakdown();
+}
+
 /// Builds scores from answered question indices and raw answer payloads.
 TemperamentScores computeScores(
   List<QuizQuestion> questions,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:genui/genui.dart';
 import 'package:intro_to_genui/ui/game_theme.dart';
 import 'package:intro_to_genui/ui/home_screen.dart';
 import 'package:intro_to_genui/ui/quiz_flow_screen.dart';
@@ -10,7 +11,12 @@ void main() {
 }
 
 class TemperamentQuestApp extends StatelessWidget {
-  const TemperamentQuestApp({super.key});
+  const TemperamentQuestApp({super.key, this.quizTransport});
+
+  /// Injected for tests; when null the quiz reads compile-time defines from
+  /// `--dart-define` / `--dart-define-from-file` (e.g. project `env.json` via
+  /// `.vscode/launch.json`).
+  final Transport? quizTransport;
 
   @override
   Widget build(BuildContext context) {
@@ -21,7 +27,7 @@ class TemperamentQuestApp extends StatelessWidget {
       initialRoute: RoutePaths.home,
       routes: {
         RoutePaths.home: (_) => const HomeScreen(),
-        RoutePaths.quiz: (_) => const QuizFlowScreen(),
+        RoutePaths.quiz: (_) => QuizFlowScreen(transport: quizTransport),
       },
     );
   }

@@ -6,7 +6,10 @@
       "request": "launch",
       "type": "dart",
       "program": "lib/main.dart",
-      "deviceId": "chrome"
+      "deviceId": "chrome",
+      "toolArgs": [
+        "--dart-define-from-file=${workspaceFolder}/env.json"
+      ]
     }
   ]
 }
